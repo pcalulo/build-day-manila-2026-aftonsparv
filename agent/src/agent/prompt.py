@@ -29,6 +29,8 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 
 FRAME_W, FRAME_H = 640, 480
+GRID_COLS, GRID_ROWS = 3, 3
+BUFFER_SIZE = GRID_COLS * GRID_ROWS
 _API_KEY = os.getenv("LLM_API_KEY", "")
 _OR_URL = "https://openrouter.ai/api/v1/messages"
 _MODEL = "google/gemini-3-flash-preview"
@@ -40,7 +42,7 @@ _MODEL = "google/gemini-3-flash-preview"
 SYSTEM_PROMPT = """\
 You are a young child participating as the guesser in a game of charades.\
 
-You are watching a sequence of 6 frames (arranged in a 2×3 grid, \
+You are watching a sequence of 9 frames (arranged in a 3×3 grid, \
 left-to-right, top-to-bottom) from a live video of someone playing charades. \
 Analyze the motion and gestures across frames. 
 
@@ -77,16 +79,24 @@ gestures, which can be quite creative!
 
 class FrameBuffer:
     def __init__(self) -> None:
-        self._buf: deque[Frame] = deque(maxlen=6)
+        self._buf: deque[Frame] = deque(maxlen=BUFFER_SIZE)
+        self._total_captures = 0
 
     def add(self, frame: Frame) -> None:
         self._buf.append(frame)
+        self._total_captures += 1
 
     def get_frames(self) -> list[Frame]:
         return list(self._buf)
 
     def is_full(self) -> bool:
-        return len(self._buf) == 6
+        return len(self._buf) == BUFFER_SIZE
+
+    def total_captures(self) -> int:
+        return self._total_captures
+
+    def should_infer(self) -> bool:
+        return self.is_full() and self._total_captures % 3 == 0
 
 
 frame_buffer = FrameBuffer()
@@ -97,10 +107,10 @@ frame_buffer = FrameBuffer()
 # ---------------------------------------------------------------------------
 
 def build_mosaic(frames: list[Frame]) -> Image.Image:
-    canvas = np.zeros((FRAME_H * 3, FRAME_W * 2, 3), dtype=np.uint8)
+    canvas = np.zeros((FRAME_H * GRID_ROWS, FRAME_W * GRID_COLS, 3), dtype=np.uint8)
     for idx, f in enumerate(frames):
         img = f.image.resize((FRAME_W, FRAME_H)).convert("RGB")
-        row, col = divmod(idx, 2)
+        row, col = divmod(idx, GRID_COLS)
         canvas[row * FRAME_H:(row + 1) * FRAME_H, col * FRAME_W:(col + 1) * FRAME_W] = np.array(img)
     return Image.fromarray(canvas)
 
@@ -159,8 +169,8 @@ async def call_openrouter(mosaic_b64: str) -> str | None:
 async def analyze(frame: Frame) -> str | None:
     """Analyze a single frame and return a guess, or None to skip.
 
-    Buffers frames until 6 are collected, then assembles a mosaic and
-    queries Claude via OpenRouter for a charades guess.
+    Buffers frames until 9 are collected, then assembles a mosaic and
+    queries the LLM via OpenRouter for a charades guess every 3 captures.
 
     Args:
         frame: A Frame with .image (PIL Image) and .timestamp.
@@ -170,9 +180,14 @@ async def analyze(frame: Frame) -> str | None:
     """
     frame_buffer.add(frame)
     n = len(frame_buffer.get_frames())
+    total = frame_buffer.total_captures()
 
     if not frame_buffer.is_full():
-        print(f"  [agent] Buffering {n}/6 frames")
+        print(f"  [agent] Buffering {n}/{BUFFER_SIZE} frames")
+        return None
+
+    if not frame_buffer.should_infer():
+        print(f"  [agent] Waiting for cadence (captures={total}, next multiple of 3)")
         return None
 
     try:
