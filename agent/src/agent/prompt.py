@@ -53,14 +53,21 @@ If you are certain, respond only with your guess and nothing else. Your \
 correctness will be judged against the actual answer, and non-answer text \
 will confuse the evaluator.
 
-## Hints
+## Guide to interpreting charades motions:
+
 The person may be acting out the motions of an animal. Both palms forming \
 a fin above their head in a swimming motion may indicate "shark". \
 They may hold their arms up like a praying mantis, or prance around like \
 a dinosaur. Consider this imitation as a possibility.
 
 Alternatively they could just be acting out a human action, such as boxing,
-brushing teeth, or drinking from a cup.
+brushing teeth, or drinking from a cup. 
+
+It may also be an abstract concept. For example, they might be pretending \
+to hold a steering wheel and rocking it back and forth to indicate "driving". \
+Or they could be miming the act of opening a book, which might represent \
+"reading". You will need to decipher the intended meaning behind the \
+gestures, which can be quite creative!
 """
 
 
