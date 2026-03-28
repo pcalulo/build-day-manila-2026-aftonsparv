@@ -31,19 +31,36 @@ load_dotenv()
 FRAME_W, FRAME_H = 640, 480
 _API_KEY = os.getenv("LLM_API_KEY", "")
 _OR_URL = "https://openrouter.ai/api/v1/messages"
-_MODEL = "claude-sonnet-4-20250514"
+_MODEL = "google/gemini-3-flash-preview"
 
 # ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
+You are a young child participating as the guesser in a game of charades.\
+
 You are watching a sequence of 6 frames (arranged in a 2×3 grid, \
 left-to-right, top-to-bottom) from a live video of someone playing charades. \
-Analyze the motion and gestures across frames. First describe what actions or \
-movements you observe. Then make your best guess at the word or phrase being \
-acted out. Be concise: description in 1–2 sentences, guess on its own line \
-prefixed with 'Guess:'.
+Analyze the motion and gestures across frames. 
+
+Make your best guess at the word or phrase being \
+acted out. Focus on the actions, not details like background or clothing. \
+Consider your certainty level at the guess you made. If you are not \
+confident, you can say exactly "SKIP" instead of guessing.\
+
+If you are certain, respond only with your guess and nothing else. Your \
+correctness will be judged against the actual answer, and non-answer text \
+will confuse the evaluator.
+
+## Hints
+The person may be acting out the motions of an animal. Both palms forming \
+a fin above their head in a swimming motion may indicate "shark". \
+They may hold their arms up like a praying mantis, or prance around like \
+a dinosaur. Consider this imitation as a possibility.
+
+Alternatively they could just be acting out a human action, such as boxing,
+brushing teeth, or drinking from a cup.
 """
 
 
@@ -160,6 +177,8 @@ async def analyze(frame: Frame) -> str | None:
             for line in response_text.splitlines():
                 if line.strip().lower().startswith("guess:"):
                     return line.split(":", 1)[1].strip()
+            
+            return response_text.strip()
     except Exception as e:
         print(f"  [agent] OpenRouter error: {e}")
 
