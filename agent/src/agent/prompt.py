@@ -29,7 +29,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 
 FRAME_W, FRAME_H = 640, 480
-GRID_COLS, GRID_ROWS = 3, 3
+GRID_COLS, GRID_ROWS = 3, 2
 BUFFER_SIZE = GRID_COLS * GRID_ROWS
 _API_KEY = os.getenv("LLM_API_KEY", "")
 _OR_URL = "https://openrouter.ai/api/v1/messages"
@@ -42,7 +42,7 @@ _MODEL = "google/gemini-3-flash-preview"
 SYSTEM_PROMPT = """\
 You are a young child participating as the guesser in a game of charades.\
 
-You are watching a sequence of 9 frames (arranged in a 3×3 grid, \
+You are watching a sequence of 9 frames (arranged in a 3×2 grid, \
 left-to-right, top-to-bottom) from a live video of someone playing charades. \
 Analyze the motion and gestures across frames. 
 
@@ -70,6 +70,72 @@ to hold a steering wheel and rocking it back and forth to indicate "driving". \
 Or they could be miming the act of opening a book, which might represent \
 "reading". You will need to decipher the intended meaning behind the \
 gestures, which can be quite creative!
+
+## If it does not look like animal or human actions...
+
+It could be a concept or place that requires some interpretation, and may \
+be a more difficult charades word. Here are a non-exhaustive list of \
+examples of more difficult charades words.
+
+Focus on ACTIONS and GESTURES, not details like background or clothing. \
+The person acting out charades will not use any props like gym weights or \
+a steering wheel, but will mime the actions instead (e.g. holding an imaginary \
+gym weight or fishing rod and doing the corresponding actions with them).
+
+Professions
+
+Astronaut: floating, slow-motion walking, helmet gesture
+Firefighter: holding hose, spraying water, climbing ladder
+Teacher: writing on board, pointing, lecturing
+Surgeon: precise hand motions, operating gestures
+Magician: wand flicks, “magic” reveal gestures
+Painter: detailed brushwork, observing canvas
+Lifeguard: scanning horizon, swimming rescue
+Karate instructor: martial arts stances, chopping motions
+
+Places / Concepts
+
+Grocery store: pushing cart, picking items
+Haunted house: डर gestures, sneaking, reacting fearfully
+Space: floating, pointing at stars/planets
+Library: quiet gesture, reading, shelving books
+Wedding: walking down aisle, ring exchange
+Gym: lifting weights, running
+Vacation: relaxing, sightseeing, taking photos
+
+Phrases / Actions
+
+Walking the dog: walking + leash pulling motion
+Changing a tire: lifting car, unscrewing bolts
+Catching a fish: casting + pulling in fish
+Playing piano: seated finger movement across keys
+
+Idioms / Phrases
+
+Piece of cake: eating cake + “easy” expression
+Break a leg: exaggerated leg motion + “good luck” tone
+Under the weather: shivering, weak, sick gestures
+Couch potato: lounging + eating lazily
+Spill the beans: tipping container, reacting to spill
+
+Characters / People
+
+Santa Claus: big belly, beard stroke, gift giving
+Elvis Presley: hip thrusts, singing pose
+Harry Potter: wand use, glasses shape, lightning scar
+Statue of Liberty: frozen pose with torch raised
+Darth Vader: stiff posture, “force” hand gesture, heavy breathing
+
+Actions
+
+Karaoke: holding mic, singing dramatically
+Yoga: slow stretching, balance poses
+Bungee jumping: jumping off height, bouncing motion
+Rock climbing: reaching upward, gripping holds
+Folding laundry: folding clothes repeatedly
+
+You may be given a list of past guesses, which you must not repeat. \
+Only guess new words or phrases that you have not guessed before.
 """
 
 
@@ -100,6 +166,7 @@ class FrameBuffer:
 
 
 frame_buffer = FrameBuffer()
+past_guesses: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -121,11 +188,27 @@ def encode_mosaic(mosaic: Image.Image) -> str:
     return base64.standard_b64encode(buf.getvalue()).decode("utf-8")
 
 
+def normalize_guess(text: str) -> str:
+    return text.strip().lower()
+
+
+def extract_guess(response_text: str) -> str | None:
+    for line in response_text.splitlines():
+        if line.strip().lower().startswith("guess:"):
+            candidate = line.split(":", 1)[1].strip()
+            return candidate or None
+
+    candidate = response_text.strip()
+    return candidate or None
+
+
 # ---------------------------------------------------------------------------
 # OpenRouter inference
 # ---------------------------------------------------------------------------
 
 async def call_openrouter(mosaic_b64: str) -> str | None:
+    past_guesses_list = ", ".join(f"- {g}" for g in past_guesses) or "(none)"
+
     payload = {
         "model": _MODEL,
         "max_tokens": 512,
@@ -143,7 +226,7 @@ async def call_openrouter(mosaic_b64: str) -> str | None:
                 },
                 {
                     "type": "text",
-                    "text": "What is this person acting out in charades? Focus on the actions",
+                    "text": f"What is this person acting out in charades? Focus on the actions. Past guesses: {past_guesses_list}",
                 },
             ],
         }],
@@ -196,11 +279,17 @@ async def analyze(frame: Frame) -> str | None:
         response_text = await call_openrouter(mosaic_b64)
         if response_text:
             print(f"  [agent] Response:\n{response_text}")
-            for line in response_text.splitlines():
-                if line.strip().lower().startswith("guess:"):
-                    return line.split(":", 1)[1].strip()
-            
-            return response_text.strip()
+            guess = extract_guess(response_text)
+            if not guess or normalize_guess(guess) == "skip":
+                return None
+
+            normalized_guess = normalize_guess(guess)
+            if normalized_guess in past_guesses:
+                print(f"  [agent] Skipping duplicate guess: {guess}")
+                return None
+
+            past_guesses.add(normalized_guess)
+            return guess
     except Exception as e:
         print(f"  [agent] OpenRouter error: {e}")
 
